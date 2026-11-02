@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 # 1. CONFIGURACIÓN DE LA INTERFAZ WEB
 st.set_page_config(page_title="Control Financiero Personal", layout="wide", page_icon="📊")
@@ -71,9 +70,9 @@ if opcion == "🏦 Panel de Control (Mis Bancos)":
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        st.metric(label="💳 CUENTA CORRIENTE / CUSTODIA (Día a Día)", value=f"{saldo_cuenta_corriente:.2f} €", help="Dinero para provisiones fijas, gastos de comida y tu padre.")
+        st.metric(label="💳 CUENTA CORRIENTE / CUSTODIA (Día a Día)", value=f"{saldo_cuenta_corriente:.2f} €")
     with col_b2:
-        st.metric(label="📈 CUENTA AHORRO (El Almacén Fuerte)", value=f"{saldo_cuenta_ahorros:.2f} €", help="Ahorro puro acumulado, horas extras y pagas dobles.")
+        st.metric(label="📈 CUENTA AHORRO (El Almacén Fuerte)", value=f"{saldo_cuenta_ahorros:.2f} €")
         
     st.markdown("---")
     st.subheader("🔀 Registrar Gasto Esporádico o Compensación Directa")
@@ -101,8 +100,7 @@ elif opcion == "🗓️ Provisiones y Alertas (Luz/Agua/Coche)":
     st.markdown("---")
     
     st.subheader("⚠️ Asesor Inteligente de Consumos (Alertas)")
-    # Simulamos un caso donde el agua se ha desviado para activar tu regla de negocio
-    st.error("🔴 ALERTA AGUA: Has aportado 40€/mes (480€ anuales), pero la factura real que te ha pasado tu padre proyecta un gasto de 525€. Te faltarán 45€. Te sugerimos subir tu aporte mensual a 45.00 €.")
+    st.error("🔴 ALERTA AGUA: Has aportado 40€/mes (480€ anuales), pero la factura real proyecta un gasto de 525€. Te faltarán 45€. Te sugerimos subir tu aporte mensual a 45.00 €.")
     st.success("🟢 COCHE: Tus aportaciones de 50€/mes cubren perfectamente los gastos de taller actuales.")
     
     st.markdown("---")
@@ -118,7 +116,6 @@ elif opcion == "🗒️ Gastos Corrientes (Comida/Abonos)":
     st.title("🗒️ Control Manual de Gastos Corrientes")
     st.markdown("---")
     
-    # Mostrar tabla actual
     df_corr = pd.DataFrame(st.session_state.db_corrientes)
     st.subheader("📋 Tus Gastos Diarios Acumulados")
     st.dataframe(df_corr, use_container_width=True)
@@ -161,7 +158,7 @@ elif opcion == "📋 Lista de Pagos Pendientes":
                 restado = min(dinero, p["Saldo"])
                 p["Saldo"] -= restado
                 dinero -= restado
-                st.success(f"Se han usado los 45€ automáticos para reducir '{p['Item']}'. Nuevo saldo: {p['Saldo']}€")
+                st.success(f"Se han usado los 45€ para reducir '{p['Item']}'. Nuevo saldo: {p['Saldo']}€")
                 if dinero <= 0: break
         st.rerun()
 
@@ -188,4 +185,11 @@ elif opcion == "⛺ Hucha Especial Camping & Irma":
         
     if st.button("💾 Guardar Registro de Camping"):
         if "Irma" in tipo_camp:
+            st.session_state.fondo_camping += monto_camp
+            st.success(f"¡Añadidos {monto_camp}€ de Irma al colchón del camping!")
+        else:
+            st.session_state.fondo_camping -= monto_camp
+            st.success(f"Restada mensualidad de {monto_camp}€ del fondo disponible.")
+        st.rerun()
 
+# =========================================================================
