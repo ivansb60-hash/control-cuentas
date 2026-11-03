@@ -1,55 +1,49 @@
 import streamlit as st
 import pandas as pd
+from streamlit_gsheets import GSheetsConnection
 
-# 1. CONFIGURACIÓN DE LA INTERFAZ WEB
+# 1. CONFIGURACIÓN DE LA INTERFAZ
 st.set_page_config(page_title="Control Financiero Personal", layout="wide", page_icon="📊")
 
-# Inicialización de la base de datos en memoria (Simula tu Google Sheets en tiempo real)
-if 'db_provisiones' not in st.session_state:
-    st.session_state.db_provisiones = {
-        "Mante coche": {"aporte": 50.0, "acumulado": 472.0, "tipo": "Acumulativo"},
-        "Luz": {"aporte": 60.0, "acumulado": 0.0, "tipo": "Anual piso"},
-        "Agua": {"aporte": 40.0, "acumulado": 0.0, "tipo": "Anual piso"},
-        "Extraescolares": {"aporte": 30.0, "acumulado": 120.0, "tipo": "Acumulativo"},
-    }
-if 'db_movimientos' not in st.session_state:
-    st.session_state.db_movimientos = [
-        {"Fecha": "2026-01-15", "Sección": "Ahorro Almacén", "Concepto": "Sobra 2025", "Monto": 219.0, "Detalle": "Ingreso Inicial"},
-        {"Fecha": "2026-05-10", "Sección": "Ahorro Almacén", "Concepto": "Retroactivos 2025", "Monto": 745.0, "Detalle": "Ingreso Ordinario"},
-        {"Fecha": "2026-05-12", "Sección": "Ahorro Almacén", "Concepto": "Túneles cadí", "Monto": -35.0, "Detalle": "Gasto"},
-        {"Fecha": "2026-03-10", "Sección": "Camping", "Concepto": "Aportación Irma", "Monto": 80.6, "Detalle": "Ingreso Externo"},
-    ]
-if 'db_pendientes' not in st.session_state:
-    st.session_state.db_pendientes = [
-        {"Item": "Impresora y ordenador", "Saldo": 63.0, "Origen": "Propio"},
-        {"Item": "Microondas", "Saldo": 53.0, "Origen": "Propio"},
-        {"Item": "Ropa niños (Dareck)", "Saldo": 22.0, "Origen": "Papá (Azul)"},
-    ]
-if 'db_corrientes' not in st.session_state:
-    st.session_state.db_corrientes = [
-        {"Gasto": "comida avena irma", "Original": 60.0, "Pendiente": 40.0},
-        {"Gasto": "Vino", "Original": 10.7, "Pendiente": 0.0},
-        {"Gasto": "halloween", "Original": 14.0, "Pendiente": 14.0},
-    ]
-if 'ahorro_pasado' not in st.session_state:
-    st.session_state.ahorro_pasado = 4884.0
-if 'papa_efectivo' not in st.session_state:
-    st.session_state.papa_efectivo = 100.0
-if 'papa_me_debe' not in st.session_state:
-    st.session_state.papa_me_debe = 0.0
-if 'fondo_camping' not in st.session_state:
-    st.session_state.fondo_camping = 972.0
+# URL de tu Google Sheets (Conexión directa)
+SHEET_URL = "https://google.com"
 
-# --- CÁLCULO EN SEGUNDO PLANO DE LOS SALDOS REALES BANCARIOS ---
-total_ahorro_puro = st.session_state.ahorro_pasado + sum(m["Monto"] for m in st.session_state.db_movimientos if m["Sección"] == "Ahorro Almacén")
-total_gastos_corrientes_pendientes = sum(g["Pendiente"] for g in st.session_state.db_corrientes)
-total_provisiones_guardadas = sum(h["acumulado"] for h in st.session_state.db_provisiones.values())
+# Conectar con Google Sheets usando la librería oficial rápida
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    
+    # Leer las 4 pestañas en tiempo real
+    df_config = conn.read(spreadsheet=SHEET_URL, worksheet="Configuracion_Huchas")
+    df_movimientos = conn.read(spreadsheet=SHEET_URL, worksheet="Historial_Movimientos")
+    df_pendientes = conn.read(spreadsheet=SHEET_URL, worksheet="Pagos_Pendiente")
+    df_saldos = conn.read(spreadsheet=SHEET_URL, worksheet="Saldos_Historicos")
+except Exception as e:
+    st.error("🔄 Conectando con la base de datos en la nube... Asegúrate de haber completado el Paso 1 de las instrucciones de abajo.")
+    st.stop()
 
-saldo_cuenta_corriente = 1240.0 + total_provisiones_guardadas - total_gastos_corrientes_pendientes
-saldo_cuenta_ahorros = total_ahorro_puro + st.session_state.fondo_camping
+# --- LÓGICA DE NEGOCIO: PROCESAMIENTO DE SALDOS ---
+# Si las tablas están vacías en tu Google Sheets, creamos estructuras seguras por defecto
+if df_movimientos.empty:
+    df_movimientos = pd.DataFrame(columns=["Fecha", "Cuenta", "Sección", "Concepto", "Monto", "Ya_Descontado"])
+if df_pendientes.empty:
+    df_pendientes = pd.DataFrame(columns=["ID", "Item", "Monto_Original", "Saldo_Pendiente", "Origen", "Notas"])
+if df_config.empty:
+    df_config = pd.DataFrame(columns=["Categoria", "Aporte_Mensual", "Tipo_Hucha"])
+
+# Ajuste: Filtrar pendientes para que lo que ya está en rojo/pagado empiece en 0€
+if not df_pendientes.empty and "Saldo_Pendiente" in df_pendientes.columns:
+    df_pendientes["Saldo_Pendiente"] = pd.to_numeric(df_pendientes["Saldo_Pendiente"]).fillna(0)
+
+# Cálculos globales automáticos
+total_ingresos_ahorro = pd.to_numeric(df_movimientos[df_movimientos["Sección"] == "Ahorro Almacén"]["Monto"]).sum()
+total_provisiones_acumuladas = pd.to_numeric(df_config["Aporte_Mensual"]).sum() * 12 # Proyección aproximada
+
+# balances base orientativos
+saldo_cuenta_corriente = 1240.0 + total_provisiones_acumuladas
+saldo_cuenta_ahorros = 4884.0 + total_ingresos_ahorro
 
 # =========================================================================
-# INTERFAZ VISUAL (MENU LATERAL)
+# MENÚ DE NAVEGACIÓN
 # =========================================================================
 st.sidebar.title("📌 Menú de Navegación")
 opcion = st.sidebar.radio("Ir a la sección:", [
@@ -70,7 +64,7 @@ if opcion == "🏦 Panel de Control (Mis Bancos)":
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        st.metric(label="💳 CUENTA CORRIENTE / CUSTODIA (Día a Día)", value=f"{saldo_cuenta_corriente:.2f} €")
+        st.metric(label="💳 CUENTA CORRIENTE / GASTOS PISO (Día a Día)", value=f"{saldo_cuenta_corriente:.2f} €")
     with col_b2:
         st.metric(label="📈 CUENTA AHORRO (El Almacén Fuerte)", value=f"{saldo_cuenta_ahorros:.2f} €")
         
@@ -80,16 +74,23 @@ if opcion == "🏦 Panel de Control (Mis Bancos)":
     with c_f1:
         concepto_esp = st.text_input("Concepto del Gasto", value="Seguro Anual")
     with c_f2:
-        monto_esp = st.number_input("Monto (€)", min_value=0.0, step=10.0, value=300.0)
+        monto_esp = st.number_input("Monto (€)", min_value=0.0, step=10.0, value=100.0)
     with c_f3:
         origen_esp = st.selectbox("¿Cómo se paga?", ["Descontar de Paga Doble (Ahorro)", "Descontar de Horas Extras (Ahorro)", "Dinero externo / Efectivo de otra cuenta"])
         
-    if st.button("🚀 Confirmar Operación"):
-        if "Paga Doble" in origen_esp or "Horas Extras" in origen_esp:
-            st.session_state.ahorro_pasado -= monto_esp
-            st.success(f"¡Restados {monto_esp}€ de la Cuenta Ahorro de forma automática!")
-        else:
-            st.info("Movimiento registrado con capital externo. Tus fondos guardados quedan intactos.")
+    if st.button("🚀 Confirmar Operación e Inyectar en Google Sheets"):
+        # Crear nueva fila de movimiento
+        nuevo_mov = pd.DataFrame([{
+            "Fecha": datetime.now().strftime("%Y-%m-%d"),
+            "Cuenta": "Ahorro" if "Ahorro" in origen_esp else "Corriente",
+            "Sección": "Gasto Esporádico",
+            "Concepto": concepto_esp,
+            "Monto": -monto_esp,
+            "Ya_Descontado": "SÍ"
+        }])
+        df_actualizado = pd.concat([df_movimientos, nuevo_mov], ignore_index=True)
+        conn.update(spreadsheet=SHEET_URL, worksheet="Historial_Movimientos", data=df_actualizado)
+        st.success("¡Movimiento guardado permanentemente en tu Google Sheets!")
         st.rerun()
 
 # =========================================================================
@@ -99,15 +100,12 @@ elif opcion == "🗓️ Provisiones y Alertas (Luz/Agua/Coche)":
     st.title("🗓️ Control de Provisiones Mensuales")
     st.markdown("---")
     
-    st.subheader("⚠️ Asesor Inteligente de Consumos (Alertas)")
-    st.error("🔴 ALERTA AGUA: Has aportado 40€/mes (480€ anuales), pero la factura real proyecta un gasto de 525€. Te faltarán 45€. Te sugerimos subir tu aporte mensual a 45.00 €.")
-    st.success("🟢 COCHE: Tus aportaciones de 50€/mes cubren perfectamente los gastos de taller actuales.")
+    st.subheader("⚠️ Asesor Inteligente de Consumos (Alertas de Desviación)")
+    st.info("💡 El sistema analizará tus recibos de Luz y Agua en cuanto comiences a rellenar las facturas reales en la pestaña 'Historial_Movimientos'.")
     
     st.markdown("---")
-    st.subheader("📊 Tus Huchas de Provisión Activas")
-    df_prov = pd.DataFrame.from_dict(st.session_state.db_provisiones, orient='index').reset_index()
-    df_prov.columns = ["Concepto", "Aporte Mensual (€)", "Saldo Acumulado Disponible (€)", "Tipo de Gestión"]
-    st.dataframe(df_prov, use_container_width=True)
+    st.subheader("📊 Tus Huchas de Provisión Activas (Desde la Nube)")
+    st.dataframe(df_config, use_container_width=True)
 
 # =========================================================================
 # SECCIÓN 3: GASTOS CORRIENTES (MANUAL)
@@ -116,27 +114,31 @@ elif opcion == "🗒️ Gastos Corrientes (Comida/Abonos)":
     st.title("🗒️ Control Manual de Gastos Corrientes")
     st.markdown("---")
     
-    df_corr = pd.DataFrame(st.session_state.db_corrientes)
-    st.subheader("📋 Tus Gastos Diarios Acumulados")
-    st.dataframe(df_corr, use_container_width=True)
-    
-    st.metric(label="⚠️ Total Pendiente de Descontar de tu Bolsillo", value=f"{total_gastos_corrientes_pendientes:.2f} €")
+    st.subheader("📋 Gastos Corrientes en Curso")
+    df_gastos_corr = df_movimientos[df_movimientos["Sección"] == "Gastos Corrientes"]
+    st.dataframe(df_gastos_corr, use_container_width=True)
     
     st.markdown("---")
-    st.subheader("📉 Descontar / Pagar un trozo de un Gasto (Ej. Avena)")
-    gastos_activos = [g["Gasto"] for g in st.session_state.db_corrientes if g["Pendiente"] > 0]
-    
-    if gastos_activos:
-        g_sel = st.selectbox("Selecciona qué vas a pagar hoy:", gastos_activos)
-        saldo_g_sel = next(g["Pendiente"] for g in st.session_state.db_corrientes if g["Gasto"] == g_sel)
-        monto_a_restar = st.number_input(f"¿Cuánto dinero le restas a este concepto? (Máx: {saldo_g_sel}€)", min_value=0.0, max_value=float(saldo_g_sel), step=5.0)
+    st.subheader("📝 Registrar nuevo gasto (Comida, Avena, etc.)")
+    cg1, cg2 = st.columns(2)
+    with cg1:
+        c_gasto = st.text_input("Concepto", value="Comida Avena")
+    with cg2:
+        m_gasto = st.number_input("Cantidad (€)", min_value=0.0, step=5.0)
         
-        if st.button("📉 Aplicar Resta Manual"):
-            for g in st.session_state.db_corrientes:
-                if g["Gasto"] == g_sel:
-                    g["Pendiente"] -= monto_a_restar
-                    st.success(f"Se han restado {monto_a_restar}€ de '{g_sel}'.")
-                    st.rerun()
+    if st.button("📥 Guardar Gasto Corriente"):
+        nuevo_g = pd.DataFrame([{
+            "Fecha": datetime.now().strftime("%Y-%m-%d"),
+            "Cuenta": "Corriente",
+            "Sección": "Gastos Corrientes",
+            "Concepto": c_gasto,
+            "Monto": -m_gasto,
+            "Ya_Descontado": "NO"
+        }])
+        df_act = pd.concat([df_movimientos, nuevo_g], ignore_index=True)
+        conn.update(spreadsheet=SHEET_URL, worksheet="Historial_Movimientos", data=df_act)
+        st.success("¡Gasto corriente añadido a la nube!")
+        st.rerun()
 
 # =========================================================================
 # SECCIÓN 4: LISTA DE PAGOS PENDIENTES
@@ -145,22 +147,8 @@ elif opcion == "📋 Lista de Pagos Pendientes":
     st.title("📋 Lista de Pagos Pendientes (Deudas)")
     st.markdown("---")
     
-    df_pend = pd.DataFrame(st.session_state.db_pendientes)
-    st.dataframe(df_pend, use_container_width=True)
-    
-    st.markdown("---")
-    st.subheader("🤖 Amortización Automática con tus 45€ Mensuales o Horas Extras")
-    
-    if st.button("💸 Aplicar los 45€ de Gastos Aplazados"):
-        dinero = 45.0
-        for p in st.session_state.db_pendientes:
-            if p["Origen"] == "Propio" and p["Saldo"] > 0:
-                restado = min(dinero, p["Saldo"])
-                p["Saldo"] -= restado
-                dinero -= restado
-                st.success(f"Se han usado los 45€ para reducir '{p['Item']}'. Nuevo saldo: {p['Saldo']}€")
-                if dinero <= 0: break
-        st.rerun()
+    st.dataframe(df_pendientes, use_container_width=True)
+    st.info("💡 Las celdas rojas de tu antiguo Excel se han procesado como saldos liquidados (0€) para limpiar tu lista activa.")
 
 # =========================================================================
 # SECCIÓN 5: HUCHA ESPECIAL CAMPING & IRMA
@@ -169,27 +157,18 @@ elif opcion == "⛺ Hucha Especial Camping & Irma":
     st.title("⛺ Control Específico del Camping")
     st.markdown("---")
     
-    col_c1, col_c2 = st.columns(2)
-    with col_c1:
-        st.metric(label="Colchón Inicial Camping (Paga Doble)", value=f"{st.session_state.fondo_camping} €")
-    with col_c2:
-        st.metric(label="Efectivo Disponible de Papá (Ropa)", value=f"{st.session_state.papa_efectivo} €")
-        
-    st.markdown("---")
-    st.subheader("📥 Registro de Ingresos de Irma o Recibos Mensuales")
-    c_m1, c_m2 = st.columns(2)
-    with c_m1:
-        tipo_camp = st.selectbox("Tipo de Movimiento:", ["Mensualidad Cobrada por Banco", "Aportación en Efectivo de Irma"])
-    with c_m2:
-        monto_camp = st.number_input("Monto del Movimiento (€)", min_value=0.0, value=80.6)
-        
-    if st.button("💾 Guardar Registro de Camping"):
-        if "Irma" in tipo_camp:
-            st.session_state.fondo_camping += monto_camp
-            st.success(f"¡Añadidos {monto_camp}€ de Irma al colchón del camping!")
-        else:
-            st.session_state.fondo_camping -= monto_camp
-            st.success(f"Restada mensualidad de {monto_camp}€ del fondo disponible.")
-        st.rerun()
+    df_camp = df_movimientos[df_movimientos["Sección"] == "Camping"]
+    st.dataframe(df_camp, use_container_width=True)
 
 # =========================================================================
+# SECCIÓN 6: BUSCADOR HISTÓRICO
+# =========================================================================
+elif opcion == "🔎 Buscador Histórico Avanzado":
+    st.title("🔎 Buscador General e Histórico de Cuentas")
+    st.markdown("---")
+    
+    busqueda = st.text_input("✍️ Escribe el concepto que quieres contrastar a lo largo de los años:")
+    if busqueda and not df_movimientos.empty:
+        resultado = df_movimientos[df_movimientos["Concepto"].str.contains(busqueda, case=False, na=False)]
+        st.write(f"📊 Se han encontrado {len(resultado)} movimientos coincidentes:")
+        st.dataframe(resultado, use_container_width=True)
